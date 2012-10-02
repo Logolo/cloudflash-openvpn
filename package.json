@@ -21,7 +21,7 @@
     "url": "git://github.com/clearpath-networks/openvpn.git"
   },
   "keywords": ["openvpn", "vpn"],
-  "main": "./lib/openvpn.coffee",
+  "main": "./lib/vpnlib.coffee",
   "contributors": [
 	  "Peter.K.Lee <plee@clearpathnet.com",
           "Badri Narayanan <badrinarayananb@calsoftlabs.com",
