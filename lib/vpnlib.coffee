@@ -115,6 +115,21 @@ class vpnlib
     constructor:  ->
         console.log 'vpnlib initialized'
 
+    getCcdPath: (id) ->
+        entry = db.main.get id
+        console.log 'client config dir is ' + entry.client-config-dir
+        return entry.client-config-dir
+
+    getMgmtPort: (id) ->
+        entry = db.main.get id
+        console.log 'management ip port is ' + entry.management
+        port = entry.management.split(" ")
+        return port[1]
+
+    getStatusFile: (id) ->
+        entry = db.main.get id
+        console.log 'status file is ' + entry.status
+        return entry.status
 
     configurevpn: (body, id, filename, callback) ->
         service = "openvpn"
@@ -173,7 +188,7 @@ class vpnlib
             catch err
                 callback(err)
 
-    delClient: (id, callback) ->
+    delInstance: (id, callback) ->
         entry = db.main.get id
 
         #spawnvpn takes care of killing openvpn instance.

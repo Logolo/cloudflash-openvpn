@@ -1,14 +1,10 @@
 # validation is used by other modules
 validate = require('json-schema').validate
+vpnlib = require './vpnlib'
 @include = ->
 
-    #variables that orchestration should set if different from these defaults
-    mgmtport = 2020
-    ccdpath = "/config/openvpn/ccd"
+    vpn = new vpnlib
     configpath = "/config/openvpn"
-    serverstatus = "/var/log/server-status.log"
-
-    vpnlib = new require 'openvpn'
   
     validateClientSchema = ->
         result = validate @body, vpn.clientSchema
@@ -35,39 +31,47 @@ validate = require('json-schema').validate
             @send res
 
     @del '/openvpn/client/:client': ->
-        vpn.delClient @params.client, @params.email, ccdpath, (res) =>
+        vpn.delInstance @params.client, (res) =>
             @send res
 
+
     @post '/openvpn/server', validateServerschema, ->
+        id = uuid.v4()
         filename = configpath + "\server.conf"
         #only one server instance, identified by "server" as id in the database
-        vpn.configvpn @body, "server", filename, (res) =>
+        vpn.configvpn @body, id, filename, (res) =>
             @send res
     
-    @post '/openvpn/users', validateUser, ->
+    @del '/openvpn/server/:server': ->
+        vpn.delInstance @params.server , (res) =>
+            @send res
+
+
+    @post '/openvpn/server/:id/users', validateUser, ->
         file =  if @body.email then @body.email else @body.cname
+        #get ccdpath from the DB
+        ccdpath = vpn.getCcdPath @params.id
         filename = ccdpath + "\#{file}"
         vpn.addUser @body, filename, (res) =>
             @send res
 
-    @del '/openvpn/users/:user': ->
+    @del '/openvpn/server/:id/users/:user': ->
+        #get ccdpath from the DB
+        ccdpath = vpn.getCcdPath @params.id
         vpn.delUser @params.user, ccdpath, (res) =>
             @send res
 
-    @post '/openvpn/miscparams': ->
-        mgmtport = @body.mgmtport if @body.mgmtport
-        ccdpath = @body.ccdpath if @body.ccdpath
-        configpath = @body.configpath if @body.configpath
-        serverstatus = @body.serverstatus if @body.serverstatus
-
-    @get '/openvpn/miscparams': ->
-        misc =
-            mgmtport:mgmport
-            ccdpath:ccdpath
-            configpath:configpath
-            serverstatus:serverstatus
-        @send misc
             
-    @get '/openvpn': ->
-        vpn.getInfo vpnmgmtport, serverstatus, "openvpn", (result) ->
+    @get '/openvpn/server/:id': ->
+        #get vpnmgmtport from DB for this given @params.id
+        vpnmgmtport = vpn.getMgmtPort @params.id
+        vpn.getInfo vpnmgmtport, serverstatus, @params.id, (result) ->
             vpn.send result
+
+    @get '/openvpn/client': ->
+        #get list of client instances from the DB
+        @send 'yet to implement /openvpn/client'
+
+    @get '/openvpn/server': ->
+        #get list of server instances from the DB
+        @send 'yet to implement /openvpn/server'
