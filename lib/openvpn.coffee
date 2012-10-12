@@ -25,53 +25,76 @@ vpnlib = require './vpnlib'
         @next()
 
     @post '/openvpn/client', validateClientSchema, ->
-        id = uuid.v4()
-        filename = configpath + "\#{id}.conf"
-        vpn.configurevpn @body, id, filename, (res) =>
-            @send res
+        instance = vpn.new @body
+        filename = configpath + "/" + "#{instance.id}.conf"
+        vpn.configvpn instance, filename, vpn.clientdb, (res) =>
+            unless res instanceof Error
+                @send instance
+            else
+                @next new Error "Invalid openvpn client posting! #{res}"
+
 
     @del '/openvpn/client/:client': ->
-        vpn.delInstance @params.client, (res) =>
+        vpn.delInstance @params.client, vpn.clientdb, (res) =>
             @send res
 
 
-    @post '/openvpn/server', validateServerschema, ->
-        id = uuid.v4()
-        filename = configpath + "\server.conf"
-        #only one server instance, identified by "server" as id in the database
-        vpn.configvpn @body, id, filename, (res) =>
-            @send res
+    @post '/openvpn/server', validateServerSchema, ->
+        instance = vpn.new @body
+        filename = configpath + "/" + "#{instance.id}.conf"
+        vpn.configvpn instance, filename, vpn.serverdb, (res) =>
+            unless res instanceof Error
+                @send instance
+            else
+                @next new Error "Invalid openvpn server posting! #{res}"
     
     @del '/openvpn/server/:server': ->
-        vpn.delInstance @params.server , (res) =>
+        vpn.delInstance @params.server , vpn.serverdb, (res) =>
             @send res
 
 
-    @post '/openvpn/server/:id/users', validateUser, ->
+    @post '/openvpn/server/:server/users', validateUser, ->
         file =  if @body.email then @body.email else @body.cname
         #get ccdpath from the DB
-        ccdpath = vpn.getCcdPath @params.id
-        filename = ccdpath + "\#{file}"
-        vpn.addUser @body, filename, (res) =>
-            @send res
+        entry = vpn.getServerEntryByID @params.server
+        console.log entry.config
+        unless entry instanceof Error
+            ccdpath = vpn.getCcdPath entry
+            console.log 'ccdpath is ' + ccdpath
+            filename = ccdpath + "/" + "#{file}"
+            vpn.addUser @body, filename, (res) =>
+                @send res
+        else
+            @next entry
 
     @del '/openvpn/server/:id/users/:user': ->
         #get ccdpath from the DB
-        ccdpath = vpn.getCcdPath @params.id
-        vpn.delUser @params.user, ccdpath, (res) =>
-            @send res
+        entry = vpn.getServerEntryByID @params.id
+        unless entry instanceof Error
+            ccdpath = vpn.getCcdPath entry
+            vpn.delUser @params.user, ccdpath, (res) =>
+                @send res
+        else
+            @next entry
 
             
     @get '/openvpn/server/:id': ->
         #get vpnmgmtport from DB for this given @params.id
-        vpnmgmtport = vpn.getMgmtPort @params.id
-        vpn.getInfo vpnmgmtport, serverstatus, @params.id, (result) ->
-            vpn.send result
+        entry = vpn.getServerEntryByID @params.id
+        unless entry instanceof Error
+            vpnmgmtport = vpn.getMgmtPort entry
+            serverstatus = vpn.getStatusFile entry
+            vpn.getInfo vpnmgmtport, serverstatus, @params.id, (result) =>
+                @send result
+        else
+            @next entry
 
     @get '/openvpn/client': ->
         #get list of client instances from the DB
-        @send 'yet to implement /openvpn/client'
+        res = vpn.listClients()
+        @send res
 
     @get '/openvpn/server': ->
         #get list of server instances from the DB
-        @send 'yet to implement /openvpn/server'
+        res = vpn.listServers()
+        @send res
