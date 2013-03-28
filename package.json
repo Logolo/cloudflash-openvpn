@@ -1,5 +1,5 @@
 {
-  "name": "openvpn",
+  "name": "cloudflash-openvpn",
   "version": "0.1.5",
   "dependencies": {
     "fileops":"0.1.3",
