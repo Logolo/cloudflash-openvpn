@@ -2,9 +2,11 @@
 fileops = require 'fileops'
 validate = require('json-schema').validate
 exec = require('child_process').exec
+uuid = require 'node-uuid'
 
 @db = db =
-    main: require('dirty') '/tmp/openvpn.db'
+    server: require('dirty') '/tmp/openvpnservers.db'
+    client: require('dirty') '/tmp/openvpnclients.db'
     user: require('dirty') '/tmp/openvpnusers.db'
 
 db.user.on 'load', ->
@@ -81,6 +83,7 @@ serverSchema =
             cert:                {"type":"string", "required":true}
             key:                 {"type":"string", "required":true}
             server:              {"type":"string", "required":true}
+            'ifconfig-pool-persist': {"type":"string", "required":false}
             'script-security':   {"type":"string", "required":false}
             multihome:           {"type":"boolean", "required":false}
             management:          {"type":"string", "required":false}
@@ -96,6 +99,7 @@ serverSchema =
                 items: { type: "string" }
             push:
                 items: { type: "string" }
+            'tls-timeout':       {"type":"number", "required":false}
             'max-clients':       {"type":"number", "required":false}
             'persist-key':       {"type":"boolean", "required":false}
             'persist-tun':       {"type":"boolean", "required":false}
@@ -106,6 +110,8 @@ serverSchema =
             rcvbuf:              {"type":"number", "required":false}
             txqueuelen:          {"type":"number", "required":false}
             'replay-window':     {"type":"string", "required":false}
+            'duplicate-cn':      {"type":"boolean", "required":false}
+            'log-append':        {"type":"string", "required":false}
             verb:                {"type":"number", "required":false}
             mlock:               {"type":"boolean", "required":false}
 
@@ -114,27 +120,52 @@ serverSchema =
 class vpnlib
     constructor:  ->
         console.log 'vpnlib initialized'
+        @clientdb = db.client
+        @serverdb = db.server
+        @serverdb.on 'load', ->
+            console.log 'loaded openvpnserver.db'
+            @forEach (key,val) ->
+                console.log 'found ' + key
+        @clientdb.on 'load', ->
+            console.log 'loaded openvpnclient.db'
+            @forEach (key,val) ->
+                console.log 'found ' + key
+        console.log 'dbs ' + @clientdb + @serverdb
 
-    getCcdPath: (id) ->
-        entry = db.main.get id
-        console.log 'client config dir is ' + entry.client-config-dir
-        return entry.client-config-dir
+    getCcdPath: (entry) ->
+        console.log entry.config
+        return entry.config["client-config-dir"]
 
-    getMgmtPort: (id) ->
-        entry = db.main.get id
-        console.log 'management ip port is ' + entry.management
-        port = entry.management.split(" ")
+    getServerEntryByID: (id) ->
+        entry = @serverdb.get id
+        if entry
+            return entry
+        else
+            return new Error "Invalid ID posting! #{id}"
+
+    getMgmtPort: (entry) ->
+        console.log 'entry is ' + entry.config
+        console.log 'management ip port is ' + entry.config.management
+        port = entry.config.management.split(" ")
         return port[1]
 
-    getStatusFile: (id) ->
-        entry = db.main.get id
+    getStatusFile: (entry) ->
         console.log 'status file is ' + entry.status
-        return entry.status
+        return entry.config.status
 
-    configurevpn: (body, id, filename, callback) ->
+
+    new: (config) ->
+        instance = {}
+        instance.id = uuid.v4()
+        instance.config = config
+        #instance.config.id ?= uuid.v4()
+        return instance
+
+    configvpn: (instance, filename, idb, callback) ->
+        console.log 'idb is ' + idb
         service = "openvpn"
         config = ''
-        for key, val of body
+        for key, val of instance.config
             switch (typeof val)
                 when "object"
                     if val instanceof Array
@@ -145,20 +176,19 @@ class vpnlib
                     config += key + ' ' + val + "\n"
                 when "boolean"
                     config += key + "\n"
-
+        console.log 'writing vpn config onto file' + filename
         fileops.createFile filename, (result) ->
             return new Error "Unable to create configuration file #{filename}!" if result instanceof Error
             fileops.updateFile filename, config
             exec "touch /config/#{service}/on"
             try
-                db.main.set id, body, ->
-                    console.log "#{id} added to OpenVPN service configuration"
+                idb.set instance.id, instance, ->
+                    console.log "#{instance.id} added to OpenVPN service configuration"
                 callback({result:true})
             catch err
                 console.log err
                 callback(err)
 
-   
 
     addUser: (body, filename, callback) ->
         service = "openvpn"
@@ -179,7 +209,7 @@ class vpnlib
                 '''
                 TODO: implement a module to act on service
                 '''
-                #exec "svcs #{service.description.name} sync"
+                exec "svcs #{service} sync"
 
                 db.user.set id, body, ->
                     console.log "#{id} added to OpenVPN service configuration"
@@ -188,17 +218,21 @@ class vpnlib
             catch err
                 callback(err)
 
-    delInstance: (id, callback) ->
-        entry = db.main.get id
-
+    delInstance: (id, idb, filename, callback) ->
+        entry = idb.get id
+        console.log 'filename to be removed ' + filename
         #spawnvpn takes care of killing openvpn instance.
         #To keep it generic, we need to call service module to stop this process
         #service module should have mapping with id to process id
-
-        db.main.rm id, ->
-            console.log "removed VPN client ID: #{id}"
-        callback({deleted:true})
-
+        fileops.removeFile filename, (err) =>
+            console.log 'result of removing file '  + err
+            unless err instanceof Error
+                idb.rm id, =>
+                    console.log "removed VPN client ID: #{id}"
+                callback(true)
+            else
+                error = new Error "Unable to delete the instance #{id}! #{err}" if err instanceof Error
+                callback (error)
 
     delUser: (userid, ccdpath, callback) ->
         entry = db.user.get userid
@@ -208,7 +242,7 @@ class vpnlib
             if entry.email
                 file = entry.email
             else
-                file = entry.commonname
+                file = entry.cname
             filename = "#{ccdpath}" + "/#{file}"
             console.log "removing user config on #{filename}..."
             fileops.fileExists filename, (exists) ->
@@ -226,9 +260,30 @@ class vpnlib
 
                         db.user.rm userid, ->
                             console.log "removed VPN user ID: #{userid}"
-                        callback({ deleted: true })
+                        callback(true)
         catch err
             callback(err)
+
+    listServers: ->
+        res = {"servers":[]}
+        @serverdb.forEach (key,val) ->
+            console.log 'found server ' + key
+            res.servers.push val
+        console.log 'listing'
+        return res.servers
+
+    listClientByID: (key) ->
+        entry = @clientdb.get key
+        return new Error "Entry with the given key #{key} does not exist" unless entry
+        return entry
+
+    listClients: ->
+        res = {"clients":[]}
+        @clientdb.forEach (key,val) ->
+            console.log 'found client ' + key
+            res.clients.push val unless key == "management"
+        console.log 'listing'
+        return res.clients
 
     getInfo: (port, filename, id, callback) ->
         console.log 'in getInfo'
