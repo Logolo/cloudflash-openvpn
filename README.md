@@ -103,8 +103,10 @@ Post openvpn server configuration
     
 ### Response JSON   
 
+    
+
     {
-       "id": "d6bd1f89-dfee-44a6-8863-8a0802ee7acd",
+       "id": "e06f3da5-3d1e-4eae-8647-b18cd59b418d",
        "config":
        {
            "port": 7000,
@@ -115,6 +117,7 @@ Post openvpn server configuration
            "cert": "/etc/identity/snap.cert",
            "key": "/etc/identity/snap.key",
            "server": "172.17.0.0 255.255.255.0",
+           "ifconfig-pool-persist": "/etc/openvpn/ip.map",
            "script-security": "3 system",
            "multihome": true,
            "management": "127.0.0.1 2020",
@@ -136,6 +139,7 @@ Post openvpn server configuration
                "route 192.168.3.0 255.255.255.0",
                "comp-lzo no"
            ],
+           "tls-timeout": 10,
            "max-clients": 254,
            "persist-key": true,
            "persist-tun": true,
@@ -146,10 +150,14 @@ Post openvpn server configuration
            "rcvbuf": 262144,
            "txqueuelen": 500,
            "replay-window": "512 15",
+           "duplicate-cn": true,
+           "log-append": "/var/log/vpn-general.log",
            "verb": 3,
            "mlock": true
        }
     }
+
+
 
 
 
@@ -189,7 +197,7 @@ Post openvpn client configuration
         "comp-lzo": "no",
         "verb": 3,
         "mlock": true
-}
+    }
     
 
    
